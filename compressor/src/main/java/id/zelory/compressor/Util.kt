@@ -1,11 +1,16 @@
 package id.zelory.compressor
 
 import android.content.Context
+import android.database.Cursor
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
+import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.provider.OpenableColumns
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 
 /**
@@ -16,7 +21,7 @@ import java.io.FileOutputStream
  */
 private val separator = File.separator
 
-private fun cachePath(context: Context) = "${context.cacheDir.path}${separator}compressor$separator"
+private fun cachePath(context: Context) = "${context.externalCacheDir}${separator}compressor${separator}"
 
 fun File.compressFormat() = when (extension.toLowerCase()) {
     "png" -> Bitmap.CompressFormat.PNG
@@ -80,6 +85,35 @@ fun determineImageRotation(imageFile: File, bitmap: Bitmap): Bitmap {
 
 internal fun copyToCache(context: Context, imageFile: File): File {
     return imageFile.copyTo(File("${cachePath(context)}${imageFile.name}"), true)
+}
+
+fun copyToCache(context: Context, srcFileUri: Uri): File {
+    val cacheFile = File("${cachePath(context)}${getFileName(context, srcFileUri)}")
+    cacheFile.parentFile.mkdirs()
+    if (cacheFile.exists()) {
+        cacheFile.delete()
+    }
+    cacheFile.createNewFile()
+    cacheFile.deleteOnExit()
+    val fd = context.contentResolver.openFileDescriptor(srcFileUri, "r")
+    val inputStream = ParcelFileDescriptor.AutoCloseInputStream(fd)
+    val outputStream = FileOutputStream(cacheFile)
+    fd.use {
+        outputStream.use {
+            inputStream.copyTo(outputStream)
+        }
+    }
+    return cacheFile
+}
+
+fun getFileName(context: Context, uri: Uri) : String {
+    val cursor: Cursor = context.contentResolver.query(
+            uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null
+    ) ?: throw FileNotFoundException()
+
+    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+    cursor.moveToFirst()
+    return cursor.getString(nameIndex)
 }
 
 fun overWrite(imageFile: File, bitmap: Bitmap, format: Bitmap.CompressFormat = imageFile.compressFormat(), quality: Int = 100): File {
